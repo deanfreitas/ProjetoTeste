@@ -541,5 +541,39 @@ class StockEntityTest {
             assertThat(toString).isNotEmpty();
             assertThat(toString).contains("StockEntity");
         }
+
+        @Test
+        @DisplayName("Should fully cover builder pattern methods")
+        void shouldFullyCoverBuilderPatternMethods() {
+            // Test all builder methods to ensure complete coverage
+            LocalDateTime time = LocalDateTime.now();
+
+            // Create builder and test all setter methods
+            StockEntity.StockEntityBuilder builder = StockEntity.builder();
+
+            // Test all builder methods individually 
+            StockEntity entity = builder
+                    .id(1L)
+                    .productId(100L)
+                    .storeId(10L)
+                    .quantity(50)
+                    .lastUpdated(time)
+                    .productName("Test Product")
+                    .storeName("Test Store")
+                    .build();
+
+            // Verify all fields are set
+            assertThat(entity.getId()).isEqualTo(1L);
+            assertThat(entity.getProductId()).isEqualTo(100L);
+            assertThat(entity.getStoreId()).isEqualTo(10L);
+            assertThat(entity.getQuantity()).isEqualTo(50);
+            assertThat(entity.getLastUpdated()).isEqualTo(time);
+            assertThat(entity.getProductName()).isEqualTo("Test Product");
+            assertThat(entity.getStoreName()).isEqualTo("Test Store");
+
+            // Test builder toString method if available
+            String builderString = StockEntity.builder().toString();
+            assertThat(builderString).isNotNull();
+        }
     }
 }

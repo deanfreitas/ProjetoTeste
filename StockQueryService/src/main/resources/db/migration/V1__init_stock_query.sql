@@ -39,75 +39,49 @@ CREATE TABLE IF NOT EXISTS lojas
 
 CREATE TABLE IF NOT EXISTS estoque
 (
-    loja_codigo
+    id
+    BIGINT
+    AUTO_INCREMENT
+    PRIMARY
+    KEY,
+    produto_id
+    BIGINT
+    NOT
+    NULL,
+    loja_id
+    BIGINT
+    NOT
+    NULL,
+    quantidade INT NOT NULL,
+    data_atualizacao
+    TIMESTAMP,
+    nome_produto
     VARCHAR
 (
-    64
-) NOT NULL,
-    produto_sku VARCHAR
-(
-    64
-) NOT NULL,
-    quantidade INT NOT NULL,
-    PRIMARY KEY
-(
-    loja_codigo,
-    produto_sku
+    255
 ),
-    CONSTRAINT fk_estoque_loja FOREIGN KEY
+    nome_loja VARCHAR
 (
-    loja_codigo
-) REFERENCES lojas
-(
-    codigo
-) ON DELETE RESTRICT
-  ON UPDATE CASCADE,
-    CONSTRAINT fk_estoque_produto FOREIGN KEY
-(
-    produto_sku
-) REFERENCES produtos
-(
-    sku
+    255
 )
-  ON DELETE RESTRICT
-  ON UPDATE CASCADE
     );
 
--- Read-optimized views as specified in README section 4.2
 CREATE
 OR REPLACE VIEW stock_view AS
-SELECT p.sku,
-       p.nome            as produto_nome,
-       SUM(e.quantidade) as quantidade_total
-FROM produtos p
-         LEFT JOIN estoque e ON p.sku = e.produto_sku
-WHERE p.ativo = TRUE
-GROUP BY p.sku, p.nome;
+SELECT produto_id, nome_produto, SUM(quantidade) as quantidade_total
+FROM estoque
+GROUP BY produto_id, nome_produto;
 
 CREATE
 OR REPLACE VIEW stock_by_store_view AS
-SELECT e.loja_codigo,
-       l.nome as loja_nome,
-       e.produto_sku,
-       p.nome as produto_nome,
-       e.quantidade
-FROM estoque e
-         JOIN lojas l ON e.loja_codigo = l.codigo
-         JOIN produtos p ON e.produto_sku = p.sku
-WHERE p.ativo = TRUE;
+SELECT loja_id, nome_loja, produto_id, nome_produto, quantidade
+FROM estoque;
 
 CREATE
 OR REPLACE VIEW product_store_view AS
-SELECT p.sku                     as produto_sku,
-       p.nome                    as produto_nome,
-       l.codigo                  as loja_codigo,
-       l.nome                    as loja_nome,
-       COALESCE(e.quantidade, 0) as quantidade
-FROM produtos p
-         CROSS JOIN lojas l
-         LEFT JOIN estoque e ON p.sku = e.produto_sku AND l.codigo = e.loja_codigo
-WHERE p.ativo = TRUE;
+SELECT produto_id as produto_sku, nome_produto, loja_id as loja_codigo, nome_loja, quantidade
+FROM estoque;
 
 -- Indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_estoque_produto ON estoque(produto_sku);
-CREATE INDEX IF NOT EXISTS idx_estoque_loja ON estoque(loja_codigo);
+CREATE INDEX IF NOT EXISTS idx_estoque_produto ON estoque(produto_id);
+CREATE INDEX IF NOT EXISTS idx_estoque_loja ON estoque(loja_id);
