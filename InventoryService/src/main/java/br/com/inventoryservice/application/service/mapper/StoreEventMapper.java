@@ -1,0 +1,20 @@
+package br.com.inventoryservice.application.service.mapper;
+
+import br.com.inventoryservice.adapters.in.messaging.dto.event.StoreEvent;
+import br.com.inventoryservice.domain.model.StoreModel;
+
+/**
+ * Mapper for converting StoreEvent (adapter) to domain model.
+ */
+public final class StoreEventMapper {
+
+    private StoreEventMapper() {}
+
+    public static StoreModel toDomain(StoreEvent event) {
+        if (event == null) return null;
+        return new StoreModel(
+                event.getEventId(),
+                event.getDados() != null ? event.getDados().getCodigo() : null
+        );
+    }
+}

@@ -1,0 +1,15 @@
+package br.com.inventoryservice.adapters.in.messaging.dto.data;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class SalesItem {
+    private String sku;
+    private Integer quantidade;
+}
