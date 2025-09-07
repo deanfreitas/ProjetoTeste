@@ -19,6 +19,7 @@
     <modules>
         <module>InventoryService</module>
         <module>StockQueryService</module>
+        <module>OrderService</module>
     </modules>
 
     <properties>
