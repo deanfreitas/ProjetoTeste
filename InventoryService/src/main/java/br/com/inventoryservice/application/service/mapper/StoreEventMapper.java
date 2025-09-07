@@ -1,7 +1,7 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.event.StoreEvent;
 import br.com.inventoryservice.domain.model.StoreModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.StoreEvent;
 
 /**
  * Mapper for converting StoreEvent (adapter) to domain model.

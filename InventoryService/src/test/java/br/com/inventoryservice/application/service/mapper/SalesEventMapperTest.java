@@ -1,7 +1,8 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.event.SalesEvent;
 import br.com.inventoryservice.domain.model.SalesModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.data.SalesItem;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.SalesEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -22,14 +23,14 @@ class SalesEventMapperTest {
         @DisplayName("Should convert valid SalesEvent to domain model")
         void shouldConvertValidSalesEventToDomainModel() {
             // Given
-            br.com.inventoryservice.adapters.in.messaging.dto.data.SalesItem item1 =
-                    br.com.inventoryservice.adapters.in.messaging.dto.data.SalesItem.builder()
+            SalesItem item1 =
+                    SalesItem.builder()
                             .sku("PROD-001")
                             .quantidade(5)
                             .build();
 
-            br.com.inventoryservice.adapters.in.messaging.dto.data.SalesItem item2 =
-                    br.com.inventoryservice.adapters.in.messaging.dto.data.SalesItem.builder()
+            SalesItem item2 =
+                    SalesItem.builder()
                             .sku("PROD-002")
                             .quantidade(3)
                             .build();

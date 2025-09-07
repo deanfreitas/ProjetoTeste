@@ -1,7 +1,7 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.event.ProductEvent;
 import br.com.inventoryservice.domain.model.ProductModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.ProductEvent;
 
 /**
  * Simple mapper for converting incoming adapter events to application service DTOs.

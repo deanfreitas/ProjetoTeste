@@ -1,8 +1,8 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.data.ProductData;
-import br.com.inventoryservice.adapters.in.messaging.dto.event.ProductEvent;
 import br.com.inventoryservice.domain.model.ProductModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.data.ProductData;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.ProductEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

@@ -1,7 +1,7 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.event.StockAdjustmentEvent;
 import br.com.inventoryservice.domain.model.StockAdjustmentModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.StockAdjustmentEvent;
 
 /**
  * Mapper for converting StockAdjustmentEvent (adapter) to domain model.

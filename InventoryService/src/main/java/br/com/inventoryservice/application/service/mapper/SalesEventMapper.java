@@ -1,8 +1,8 @@
 package br.com.inventoryservice.application.service.mapper;
 
-import br.com.inventoryservice.adapters.in.messaging.dto.event.SalesEvent;
 import br.com.inventoryservice.domain.model.SalesItem;
 import br.com.inventoryservice.domain.model.SalesModel;
+import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.SalesEvent;
 
 import java.util.stream.Collectors;
 
