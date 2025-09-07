@@ -21,7 +21,7 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class KafkaIntegrationTestBase {
 
     @Container
-    static KafkaContainer kafkaContainer = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.0"));
+    static KafkaContainer kafkaContainer = new KafkaContainer(DockerImageName.parse("apache/kafka"));
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
