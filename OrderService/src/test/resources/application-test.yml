@@ -1,11 +1,11 @@
 spring:
   application:
-    name: order-service
+    name: order-service-test
   
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: order-service-group
+      group-id: order-service-test-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
@@ -14,35 +14,36 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-
   datasource:
-    url: jdbc:h2:mem:orderdb
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
-    password: password
-
+    password:
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    clean-disabled: false
   h2:
     console:
       enabled: true
       path: /h2-console
 
-  jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
-    hibernate:
-      ddl-auto: none
-    show-sql: true
-    open-in-view: false
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-
 order:
   kafka:
     topics:
-      vendas: vendas
-    group-id: order-service-group
+      vendas: vendas-test
+    group-id: order-service-test-group
 
 logging:
   level:
-    br.com.orderservice: DEBUG
-    org.springframework.kafka: INFO
+    br.com.orderservice: INFO
+    org.springframework.kafka: WARN
+    org.hibernate.SQL: WARN
+    org.springframework.web: WARN
+    root: WARN

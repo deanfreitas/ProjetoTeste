@@ -1,5 +1,3 @@
-# Test configuration for InventoryService Integration Tests
-
 inventory:
   allowNegative: false
   kafka:

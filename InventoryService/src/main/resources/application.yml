@@ -1,5 +1,3 @@
-# Default application configuration for InventoryService
-
 inventory:
   allowNegative: false
   kafka:
