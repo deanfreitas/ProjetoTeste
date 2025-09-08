@@ -103,7 +103,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
@@ -222,7 +222,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
@@ -249,7 +249,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
