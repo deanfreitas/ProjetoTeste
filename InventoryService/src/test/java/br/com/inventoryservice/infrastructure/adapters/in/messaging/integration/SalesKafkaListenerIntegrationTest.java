@@ -1,22 +1,25 @@
 package br.com.inventoryservice.infrastructure.adapters.in.messaging.integration;
 
-import br.com.inventoryservice.application.port.in.InventoryEventUseCase;
 import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.data.SalesItem;
 import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.SalesEvent;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.entity.ProcessedEventEntity;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.entity.StockId;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.ProcessedEventRepository;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.StockRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.jdbc.Sql;
+import org.testcontainers.shaded.org.awaitility.Awaitility;
 
-import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for SalesKafkaListener using TestContainers.
@@ -24,234 +27,266 @@ import static org.mockito.Mockito.*;
  */
 @DisplayName("SalesKafkaListener Integration Tests")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
-public class SalesKafkaListenerIntegrationTest extends KafkaIntegrationTestBase {
+@Sql(scripts = "/db/migration/V1__init-inventory.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(scripts = "/db/migration/setup-product-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(scripts = "/db/migration/cleanup.sql", executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD)
+class SalesKafkaListenerIntegrationTest extends KafkaIntegrationTestBase {
 
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
 
+    private static final String SALES_TOPIC = "vendas-test";
     @Autowired
-    private InventoryEventUseCase inventoryEventUseCase;
+    private ProcessedEventRepository processedEventRepository;
+    @Autowired
+    private StockRepository stockRepository;
 
     @Test
-    @DisplayName("Should process valid sales event successfully")
-    void shouldProcessValidSalesEvent() {
-        // Arrange
-        SalesEvent salesEvent = createValidSalesEvent("VENDA", "LOJA001", "PEDIDO001");
-        String topic = "vendas-test";
+    @DisplayName("Should process sales event and decrease inventory")
+    void shouldProcessSalesEventAndDecreaseInventory() {
+        // Given - Initial stock for STORE001/SKU001 is 100 (from setup data)
+        List<SalesItem> items = Arrays.asList(
+                SalesItem.builder().sku("SKU001").quantidade(10).build(),
+                SalesItem.builder().sku("SKU002").quantidade(5).build()
+        );
 
-        // Act
-        kafkaTemplate.send(topic, salesEvent);
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("sales-event-001")
+                .loja("STORE001")
+                .itens(items)
+                .build();
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key1", salesEvent);
+
+        // Then - Wait for message to be processed
+        Awaitility.await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales ->
-                                            "LOJA001".equals(sales.loja()) &&
-                                                    sales.eventId() != null &&
-                                                    sales.itens() != null &&
-                                                    sales.itens().size() == 2
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
+                    // Check that event was marked as processed
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be marked as processed");
+
+                    ProcessedEventEntity processedEvent = processedEvents.get(0);
+                    assertEquals(SALES_TOPIC, processedEvent.getTopico());
+
+                    // Check that inventory was decremented
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockId002 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU002").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    var stockSku002 = stockRepository.findById(stockId002);
+
+                    assertTrue(stockSku001.isPresent(), "Stock for SKU001 should exist");
+                    assertTrue(stockSku002.isPresent(), "Stock for SKU002 should exist");
+
+                    assertEquals(90, stockSku001.get().getQuantidade(), "SKU001 stock should be decremented by 10");
+                    assertEquals(45, stockSku002.get().getQuantidade(), "SKU002 stock should be decremented by 5");
                 });
     }
 
     @Test
-    @DisplayName("Should process sales event with single item")
-    void shouldProcessSalesEventWithSingleItem() {
-        // Arrange
-        SalesEvent salesEvent = createSalesEventWithSingleItem("VENDA", "LOJA002", "PEDIDO002", "PRODUTO001", 5);
-        String topic = "vendas-test";
+    @DisplayName("Should handle sales event with null items")
+    void shouldHandleSalesEventWithNullItems() {
+        // Given
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("sales-event-002")
+                .loja("STORE001")
+                .itens(null)
+                .build();
 
-        // Act
-        kafkaTemplate.send(topic, salesEvent);
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key2", salesEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
+        // Then - Should still mark as processed but no inventory changes
+        Awaitility.await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales ->
-                                            "LOJA002".equals(sales.loja()) &&
-                                                    sales.eventId() != null &&
-                                                    sales.itens() != null &&
-                                                    sales.itens().size() == 1 &&
-                                                    "PRODUTO001".equals(sales.itens().get(0).sku()) &&
-                                                    sales.itens().get(0).quantidade().equals(5)
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be marked as processed even with null items");
+
+                    // Verify no inventory changes occurred
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    assertTrue(stockSku001.isPresent());
+                    assertEquals(100, stockSku001.get().getQuantidade(), "Inventory should remain unchanged");
                 });
     }
 
     @Test
-    @DisplayName("Should handle multiple sales events concurrently")
-    void shouldHandleMultipleSalesEventsConcurrently() {
-        // Arrange
-        String topic = "vendas-test";
-        SalesEvent event1 = createValidSalesEvent("VENDA", "LOJA003", "PEDIDO003");
-        SalesEvent event2 = createValidSalesEvent("VENDA", "LOJA004", "PEDIDO004");
-        SalesEvent event3 = createValidSalesEvent("VENDA", "LOJA005", "PEDIDO005");
+    @DisplayName("Should prevent duplicate processing of same sales event")
+    void shouldPreventDuplicateProcessingOfSameSalesEvent() {
+        // Given
+        List<SalesItem> items = Collections.singletonList(
+                SalesItem.builder().sku("SKU001").quantidade(5).build()
+        );
 
-        // Act
-        kafkaTemplate.send(topic, event1);
-        kafkaTemplate.send(topic, event2);
-        kafkaTemplate.send(topic, event3);
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("duplicate-sales-event-001")
+                .loja("STORE001")
+                .itens(items)
+                .build();
 
-        // Assert
-        await().atMost(15, TimeUnit.SECONDS)
+        // When - Send same event twice
+        kafkaTemplate.send(SALES_TOPIC, "key3", salesEvent);
+        kafkaTemplate.send(SALES_TOPIC, "key3", salesEvent);
+
+        // Then - Should process only once
+        Awaitility.await().atMost(15, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, times(3))
-                            .handleSalesEvent(any(), eq(topic), any(Integer.class), any(Long.class));
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be processed at least once");
+
+                    // Verify inventory was decremented only once (should be 95, not 90)
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    assertTrue(stockSku001.isPresent());
+                    assertEquals(95, stockSku001.get().getQuantidade(), "Inventory should be decremented only once");
                 });
     }
 
     @Test
-    @DisplayName("Should handle sales event with empty items list")
-    void shouldHandleSalesEventWithEmptyItems() {
-        // Arrange
-        SalesEvent salesEvent = createSalesEventWithEmptyItems("VENDA", "LOJA006", "PEDIDO006");
-        String topic = "vendas-test";
+    @DisplayName("Should ignore sales for non-existing store")
+    void shouldIgnoreSalesForNonExistingStore() {
+        // Given
+        List<SalesItem> items = Collections.singletonList(
+                SalesItem.builder().sku("SKU001").quantidade(10).build()
+        );
 
-        // Act
-        kafkaTemplate.send(topic, salesEvent);
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("non-existing-store-event-001")
+                .loja("NON_EXISTING_STORE")
+                .itens(items)
+                .build();
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key4", salesEvent);
+
+        // Then - Should mark as processed but no inventory changes
+        Awaitility.await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales ->
-                                            "LOJA006".equals(sales.loja()) &&
-                                                    sales.eventId() != null &&
-                                                    sales.itens() != null &&
-                                                    sales.itens().isEmpty()
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be marked as processed");
+
+                    // Verify no inventory changes occurred for existing store
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    assertTrue(stockSku001.isPresent());
+                    assertEquals(100, stockSku001.get().getQuantidade(), "Inventory should remain unchanged for valid store");
                 });
     }
 
     @Test
-    @DisplayName("Should handle sales event with different store codes")
-    void shouldHandleSalesEventWithDifferentStoreCodes() {
-        // Arrange
-        SalesEvent salesEvent1 = createValidSalesEvent("VENDA", "STORE_A", "ORDER_A");
-        SalesEvent salesEvent2 = createValidSalesEvent("VENDA", "STORE_B", "ORDER_B");
-        String topic = "vendas-test";
+    @DisplayName("Should ignore items with invalid quantities")
+    void shouldIgnoreItemsWithInvalidQuantities() {
+        // Given
+        List<SalesItem> items = Arrays.asList(
+                SalesItem.builder().sku("SKU001").quantidade(10).build(), // Valid
+                SalesItem.builder().sku("SKU002").quantidade(0).build(),  // Invalid - zero quantity
+                SalesItem.builder().sku("SKU004").quantidade(-5).build(), // Invalid - negative quantity
+                SalesItem.builder().sku("SKU001").quantidade(null).build() // Invalid - null quantity
+        );
 
-        // Act
-        kafkaTemplate.send(topic, salesEvent1);
-        kafkaTemplate.send(topic, salesEvent2);
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("invalid-quantities-event-001")
+                .loja("STORE001")
+                .itens(items)
+                .build();
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key5", salesEvent);
+
+        // Then - Only valid items should be processed
+        Awaitility.await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales -> "STORE_A".equals(sales.loja())),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales -> "STORE_B".equals(sales.loja())),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be marked as processed");
+
+                    // Only SKU001 with quantity 10 should be processed
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockId002 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU002").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    var stockSku002 = stockRepository.findById(stockId002);
+
+                    assertTrue(stockSku001.isPresent());
+                    assertTrue(stockSku002.isPresent());
+
+                    assertEquals(90, stockSku001.get().getQuantidade(), "Only valid SKU001 item should be processed");
+                    assertEquals(50, stockSku002.get().getQuantidade(), "SKU002 should remain unchanged due to invalid quantity");
                 });
     }
 
     @Test
-    @DisplayName("Should handle sales cancellation event")
-    void shouldHandleSalesCancellationEvent() {
-        // Arrange
-        SalesEvent salesEvent = createValidSalesEvent("CANCELAMENTO", "LOJA007", "PEDIDO007");
-        String topic = "vendas-test";
+    @DisplayName("Should ignore sales for inactive products")
+    void shouldIgnoreSalesForInactiveProducts() {
+        // Given - SKU003 is inactive from setup data
+        List<SalesItem> items = Arrays.asList(
+                SalesItem.builder().sku("SKU001").quantidade(5).build(),  // Active product
+                SalesItem.builder().sku("SKU003").quantidade(10).build() // Inactive product
+        );
 
-        // Act
-        kafkaTemplate.send(topic, salesEvent);
+        SalesEvent salesEvent = SalesEvent.builder()
+                .eventId("inactive-product-event-001")
+                .loja("STORE001")
+                .itens(items)
+                .build();
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key6", salesEvent);
+
+        // Then - Only active products should be processed
+        Awaitility.await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleSalesEvent(
-                                    argThat(sales ->
-                                            "LOJA007".equals(sales.loja()) &&
-                                                    sales.eventId() != null
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
+                    var processedEvents = processedEventRepository.findAll();
+                    assertFalse(processedEvents.isEmpty(), "Sales event should be marked as processed");
+
+                    // Only SKU001 should be decremented
+                    var stockId001 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var stockSku001 = stockRepository.findById(stockId001);
+                    assertTrue(stockSku001.isPresent());
+                    assertEquals(95, stockSku001.get().getQuantidade(), "Active product should be processed");
+
+                    // SKU003 should not have any stock entry created
+                    var stockId003 = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU003").build();
+                    var stockSku003 = stockRepository.findById(stockId003);
+                    assertFalse(stockSku003.isPresent(), "Inactive product should not create stock entry");
                 });
     }
 
-    /**
-     * Creates a valid SalesEvent for testing purposes with multiple items.
-     */
-    private SalesEvent createValidSalesEvent(String tipo, String loja, String pedidoId) {
-        SalesItem item1 = SalesItem.builder()
-                .sku("PRODUTO001")
-                .quantidade(2)
+    @Test
+    @DisplayName("Should handle multiple sales events for different stores")
+    void shouldHandleMultipleSalesEventsForDifferentStores() {
+        // Given
+        SalesEvent store1Event = SalesEvent.builder()
+                .eventId("multi-store-sales-001")
+                .loja("STORE001")
+                .itens(Collections.singletonList(SalesItem.builder().sku("SKU001").quantidade(10).build()))
                 .build();
 
-        SalesItem item2 = SalesItem.builder()
-                .sku("PRODUTO002")
-                .quantidade(1)
+        SalesEvent store2Event = SalesEvent.builder()
+                .eventId("multi-store-sales-002")
+                .loja("STORE002")
+                .itens(Collections.singletonList(SalesItem.builder().sku("SKU001").quantidade(15).build()))
                 .build();
 
-        return SalesEvent.builder()
-                .eventId(UUID.randomUUID().toString())
-                .tipo(tipo)
-                .timestamp(OffsetDateTime.now())
-                .loja(loja)
-                .pedidoId(pedidoId)
-                .itens(List.of(item1, item2))
-                .build();
-    }
+        // When
+        kafkaTemplate.send(SALES_TOPIC, "key7", store1Event);
+        kafkaTemplate.send(SALES_TOPIC, "key8", store2Event);
 
-    /**
-     * Creates a SalesEvent with a single item for testing purposes.
-     */
-    private SalesEvent createSalesEventWithSingleItem(String tipo, String loja, String pedidoId, String sku, Integer quantidade) {
-        SalesItem item = SalesItem.builder()
-                .sku(sku)
-                .quantidade(quantidade)
-                .build();
+        // Then - Both stores should have inventory decremented
+        Awaitility.await().atMost(15, TimeUnit.SECONDS)
+                .untilAsserted(() -> {
+                    var processedEvents = processedEventRepository.findAll();
+                    assertTrue(processedEvents.size() >= 2, "Both sales events should be processed");
 
-        return SalesEvent.builder()
-                .eventId(UUID.randomUUID().toString())
-                .tipo(tipo)
-                .timestamp(OffsetDateTime.now())
-                .loja(loja)
-                .pedidoId(pedidoId)
-                .itens(List.of(item))
-                .build();
-    }
+                    // Check both stores
+                    var store1Id = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+                    var store2Id = StockId.builder().lojaCodigo("STORE002").produtoSku("SKU001").build();
+                    var store1Stock = stockRepository.findById(store1Id);
+                    var store2Stock = stockRepository.findById(store2Id);
 
-    /**
-     * Creates a SalesEvent with empty items list for testing purposes.
-     */
-    private SalesEvent createSalesEventWithEmptyItems(String tipo, String loja, String pedidoId) {
-        return SalesEvent.builder()
-                .eventId(UUID.randomUUID().toString())
-                .tipo(tipo)
-                .timestamp(OffsetDateTime.now())
-                .loja(loja)
-                .pedidoId(pedidoId)
-                .itens(List.of())
-                .build();
+                    assertTrue(store1Stock.isPresent());
+                    assertTrue(store2Stock.isPresent());
+
+                    assertEquals(90, store1Stock.get().getQuantidade(), "STORE001 should have 90 units");
+                    assertEquals(60, store2Stock.get().getQuantidade(), "STORE002 should have 60 units (75-15)");
+                });
     }
 }
