@@ -1,20 +1,23 @@
 package br.com.inventoryservice.infrastructure.adapters.in.messaging.integration;
 
-import br.com.inventoryservice.application.port.in.InventoryEventUseCase;
 import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.StockAdjustmentEvent;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.entity.ProcessedEventEntity;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.entity.StockId;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.ProcessedEventRepository;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.StockAdjustmentRepository;
+import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.StockRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.jdbc.Sql;
+import org.testcontainers.shaded.org.awaitility.Awaitility;
 
 import java.time.OffsetDateTime;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for StockAdjustmentKafkaListener using TestContainers.
@@ -22,243 +25,226 @@ import static org.mockito.Mockito.*;
  */
 @DisplayName("StockAdjustmentKafkaListener Integration Tests")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
-public class StockAdjustmentKafkaListenerIntegrationTest extends KafkaIntegrationTestBase {
+@Sql(scripts = "/db/migration/V1__init-inventory.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(scripts = "/db/migration/setup-product-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(scripts = "/db/migration/cleanup.sql", executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD)
+class StockAdjustmentKafkaListenerIntegrationTest extends KafkaIntegrationTestBase {
+    private static final String STOCK_ADJUSTMENT_TOPIC = "ajustes_estoque-test";
 
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
 
     @Autowired
-    private InventoryEventUseCase inventoryEventUseCase;
+    private ProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private StockRepository stockRepository;
+
+    @Autowired
+    private StockAdjustmentRepository stockAdjustmentRepository;
 
     @Test
-    @DisplayName("Should process positive stock adjustment successfully")
-    void shouldProcessPositiveStockAdjustment() {
-        // Arrange
-        StockAdjustmentEvent adjustmentEvent = createStockAdjustmentEvent(
-                "AJUSTE_APLICADO", "LOJA001", "PRODUTO001", 10, "Reposição de estoque"
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should process stock adjustment event and update inventory")
+    void shouldProcessStockAdjustmentEventAndUpdateInventory() {
+        // Given - Initial stock for STORE001/SKU001 is 100 (from setup data)
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("adjustment-event-001").loja("STORE001").sku("SKU001").delta(25) // Add 25 units
+                .motivo("Inventory recount").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, adjustmentEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key1", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA001".equals(adjustment.loja()) &&
-                                                    "PRODUTO001".equals(adjustment.sku()) &&
-                                                    adjustment.delta().equals(10) &&
-                                                    "Reposição de estoque".equals(adjustment.motivo()) &&
-                                                    adjustment.eventId() != null
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then - Wait for message to be processed
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            // Check that event was marked as processed
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Stock adjustment event should be marked as processed");
+
+            ProcessedEventEntity processedEvent = processedEvents.get(0);
+            assertEquals(STOCK_ADJUSTMENT_TOPIC, processedEvent.getTopico());
+
+            // Check that inventory was adjusted
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+            var stock = stockRepository.findById(stockId);
+
+            assertTrue(stock.isPresent(), "Stock for SKU001 should exist");
+            assertEquals(125, stock.get().getQuantidade(), "Stock should be increased by 25 (100 + 25)");
+
+            // Check that adjustment record was created
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertFalse(adjustments.isEmpty(), "Stock adjustment record should be created");
+        });
     }
 
     @Test
-    @DisplayName("Should process negative stock adjustment successfully")
-    void shouldProcessNegativeStockAdjustment() {
-        // Arrange
-        StockAdjustmentEvent adjustmentEvent = createStockAdjustmentEvent(
-                "AJUSTE_APLICADO", "LOJA002", "PRODUTO002", -5, "Produto danificado"
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should handle negative stock adjustment")
+    void shouldHandleNegativeStockAdjustment() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("adjustment-event-002").loja("STORE001").sku("SKU002").delta(-20) // Remove 20 units
+                .motivo("Damaged goods").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, adjustmentEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key2", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA002".equals(adjustment.loja()) &&
-                                                    "PRODUTO002".equals(adjustment.sku()) &&
-                                                    adjustment.delta().equals(-5) &&
-                                                    "Produto danificado".equals(adjustment.motivo()) &&
-                                                    adjustment.eventId() != null
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Stock adjustment event should be marked as processed");
+
+            // Check that inventory was decremented
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU002").build();
+            var stock = stockRepository.findById(stockId);
+
+            assertTrue(stock.isPresent(), "Stock for SKU002 should exist");
+            assertEquals(30, stock.get().getQuantidade(), "Stock should be decreased by 20 (50 - 20)");
+
+            // Check that adjustment record was created
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertFalse(adjustments.isEmpty(), "Stock adjustment record should be created");
+        });
     }
 
     @Test
-    @DisplayName("Should process stock adjustment without reason")
-    void shouldProcessStockAdjustmentWithoutReason() {
-        // Arrange
-        StockAdjustmentEvent adjustmentEvent = createStockAdjustmentEvent(
-                "AJUSTE_APLICADO", "LOJA003", "PRODUTO003", 3, null
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should handle zero delta stock adjustment")
+    void shouldHandleZeroDeltaStockAdjustment() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("adjustment-event-003").loja("STORE001").sku("SKU001").delta(0) // Zero adjustment
+                .motivo("System correction").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, adjustmentEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key3", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA003".equals(adjustment.loja()) &&
-                                                    "PRODUTO003".equals(adjustment.sku()) &&
-                                                    adjustment.delta().equals(3) &&
-                                                    adjustment.motivo() == null &&
-                                                    adjustment.eventId() != null
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Stock adjustment event should be marked as processed");
+
+            // Check that inventory remains unchanged
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+            var stock = stockRepository.findById(stockId);
+
+            assertTrue(stock.isPresent(), "Stock for SKU001 should exist");
+            assertEquals(100, stock.get().getQuantidade(), "Stock should remain unchanged for zero delta");
+
+            // Check that adjustment record was still created
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertFalse(adjustments.isEmpty(), "Stock adjustment record should be created even for zero delta");
+        });
     }
 
     @Test
-    @DisplayName("Should handle multiple stock adjustments concurrently")
-    void shouldHandleMultipleStockAdjustmentsConcurrently() {
-        // Arrange
-        String topic = "ajustes_estoque-test";
-        StockAdjustmentEvent event1 = createStockAdjustmentEvent("AJUSTE_APLICADO", "LOJA004", "PRODUTO004", 15, "Inventário");
-        StockAdjustmentEvent event2 = createStockAdjustmentEvent("AJUSTE_APLICADO", "LOJA005", "PRODUTO005", -8, "Perda");
-        StockAdjustmentEvent event3 = createStockAdjustmentEvent("AJUSTE_APLICADO", "LOJA006", "PRODUTO006", 22, "Transferência");
+    @DisplayName("Should prevent duplicate processing of same adjustment event")
+    void shouldPreventDuplicateProcessingOfSameAdjustmentEvent() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("duplicate-adjustment-001").loja("STORE001").sku("SKU001").delta(10).motivo("Duplicate test").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, event1);
-        kafkaTemplate.send(topic, event2);
-        kafkaTemplate.send(topic, event3);
+        // When - Send same event twice
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key4", adjustmentEvent);
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key4", adjustmentEvent);
 
-        // Assert
-        await().atMost(15, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, times(3))
-                            .handleStockAdjustmentEvent(any(), eq(topic), any(Integer.class), any(Long.class));
-                });
+        // Then - Should process only once
+        Awaitility.await().atMost(15, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Adjustment event should be processed at least once");
+
+            // Verify inventory was adjusted only once (should be 110, not 120)
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+            var stock = stockRepository.findById(stockId);
+            assertTrue(stock.isPresent());
+            assertEquals(110, stock.get().getQuantidade(), "Inventory should be adjusted only once");
+        });
     }
 
     @Test
-    @DisplayName("Should handle stock adjustment with zero delta")
-    void shouldHandleStockAdjustmentWithZeroDelta() {
-        // Arrange
-        StockAdjustmentEvent adjustmentEvent = createStockAdjustmentEvent(
-                "AJUSTE_APLICADO", "LOJA007", "PRODUTO007", 0, "Correção de contagem"
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should ignore adjustment for non-existing store")
+    void shouldIgnoreAdjustmentForNonExistingStore() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("non-existing-store-adjustment-001").loja("NON_EXISTING_STORE").sku("SKU001").delta(50).motivo("Invalid store test").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, adjustmentEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key5", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA007".equals(adjustment.loja()) &&
-                                                    "PRODUTO007".equals(adjustment.sku()) &&
-                                                    adjustment.delta().equals(0) &&
-                                                    "Correção de contagem".equals(adjustment.motivo())
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then - Should mark as processed but no inventory changes
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Adjustment event should be marked as processed");
+
+            // Verify no inventory changes occurred for existing store
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU001").build();
+            var stock = stockRepository.findById(stockId);
+            assertTrue(stock.isPresent());
+            assertEquals(100, stock.get().getQuantidade(), "Inventory should remain unchanged for valid store");
+
+            // Should not create adjustment record for invalid store
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertTrue(adjustments.isEmpty(), "No adjustment record should be created for invalid store");
+        });
     }
 
     @Test
-    @DisplayName("Should handle large positive stock adjustment")
-    void shouldHandleLargePositiveStockAdjustment() {
-        // Arrange
-        StockAdjustmentEvent adjustmentEvent = createStockAdjustmentEvent(
-                "AJUSTE_APLICADO", "LOJA008", "PRODUTO008", 1000, "Reposição massiva"
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should ignore adjustment for non-existing product")
+    void shouldIgnoreAdjustmentForNonExistingProduct() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("non-existing-product-adjustment-001").loja("STORE001").sku("NON_EXISTING_SKU").delta(50).motivo("Invalid product test").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, adjustmentEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key6", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA008".equals(adjustment.loja()) &&
-                                                    "PRODUTO008".equals(adjustment.sku()) &&
-                                                    adjustment.delta().equals(1000) &&
-                                                    adjustment.eventId() != null
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then - Should mark as processed but no inventory changes
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Adjustment event should be marked as processed");
+
+            // Should not create adjustment record for invalid product
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertTrue(adjustments.isEmpty(), "No adjustment record should be created for invalid product");
+        });
     }
 
     @Test
-    @DisplayName("Should handle different adjustment types")
-    void shouldHandleDifferentAdjustmentTypes() {
-        // Arrange
-        StockAdjustmentEvent inventoryEvent = createStockAdjustmentEvent(
-                "INVENTARIO", "LOJA009", "PRODUTO009", 50, "Contagem física"
-        );
-        StockAdjustmentEvent correctionEvent = createStockAdjustmentEvent(
-                "CORRECAO", "LOJA010", "PRODUTO010", -12, "Correção de erro"
-        );
-        String topic = "ajustes_estoque-test";
+    @DisplayName("Should ignore adjustment for inactive product")
+    void shouldIgnoreAdjustmentForInactiveProduct() {
+        // Given - SKU003 is inactive from setup data
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("inactive-product-adjustment-001").loja("STORE001").sku("SKU003") // Inactive product
+                .delta(25).motivo("Inactive product test").timestamp(OffsetDateTime.now()).build();
 
-        // Act
-        kafkaTemplate.send(topic, inventoryEvent);
-        kafkaTemplate.send(topic, correctionEvent);
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key7", adjustmentEvent);
 
-        // Assert
-        await().atMost(10, TimeUnit.SECONDS)
-                .untilAsserted(() -> {
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA009".equals(adjustment.loja()) &&
-                                                    adjustment.delta().equals(50)
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                    verify(inventoryEventUseCase, atLeastOnce())
-                            .handleStockAdjustmentEvent(
-                                    argThat(adjustment ->
-                                            "LOJA010".equals(adjustment.loja()) &&
-                                                    adjustment.delta().equals(-12)
-                                    ),
-                                    eq(topic),
-                                    any(Integer.class),
-                                    any(Long.class)
-                            );
-                });
+        // Then - Should mark as processed but no adjustment should occur
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Adjustment event should be marked as processed");
+
+            // Should not create adjustment record or stock entry for inactive product
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertTrue(adjustments.isEmpty(), "No adjustment record should be created for inactive product");
+
+            // Should not create stock entry
+            var stockId = StockId.builder().lojaCodigo("STORE001").produtoSku("SKU003").build();
+            var stock = stockRepository.findById(stockId);
+            assertFalse(stock.isPresent(), "No stock entry should be created for inactive product");
+        });
     }
 
-    /**
-     * Creates a StockAdjustmentEvent for testing purposes.
-     */
-    private StockAdjustmentEvent createStockAdjustmentEvent(String tipo, String loja, String sku, Integer delta, String motivo) {
-        return StockAdjustmentEvent.builder()
-                .eventId(UUID.randomUUID().toString())
-                .tipo(tipo)
-                .timestamp(OffsetDateTime.now())
-                .loja(loja)
-                .sku(sku)
-                .delta(delta)
-                .motivo(motivo)
-                .build();
+    @Test
+    @DisplayName("Should handle adjustment with null event data")
+    void shouldHandleAdjustmentWithNullEventData() {
+        // Given
+        StockAdjustmentEvent adjustmentEvent = StockAdjustmentEvent.builder().eventId("null-data-adjustment-001").loja(null) // Null store
+                .sku(null)  // Null SKU
+                .delta(10).motivo("Null data test").timestamp(OffsetDateTime.now()).build();
+
+        // When
+        kafkaTemplate.send(STOCK_ADJUSTMENT_TOPIC, "key8", adjustmentEvent);
+
+        // Then - Should mark as processed but no adjustments
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
+            var processedEvents = processedEventRepository.findAll();
+            assertFalse(processedEvents.isEmpty(), "Adjustment event should be marked as processed even with null data");
+
+            // Should not create any adjustment records
+            var adjustments = stockAdjustmentRepository.findAll();
+            assertTrue(adjustments.isEmpty(), "No adjustment record should be created for null data");
+        });
     }
 }
