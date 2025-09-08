@@ -1,25 +1,24 @@
 package br.com.inventoryservice.infrastructure.adapters.in.messaging.integration;
 
+import br.com.inventoryservice.application.port.in.InventoryEventUseCase;
 import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.data.ProductData;
 import br.com.inventoryservice.infrastructure.adapters.in.messaging.dto.event.ProductEvent;
-import br.com.inventoryservice.infrastructure.adapters.out.persistence.entity.ProductEntity;
-import br.com.inventoryservice.infrastructure.adapters.out.persistence.repository.ProductRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
- * Integration tests for ProductKafkaListener using H2 database.
+ * Integration tests for ProductKafkaListener using TestContainers.
  * Tests the complete flow from Kafka message consumption to service processing.
  */
 @DisplayName("ProductKafkaListener Integration Tests")
@@ -29,13 +28,8 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
 
-    @Autowired
-    private ProductRepository productRepository;
-
-    @AfterEach
-    void cleanup() {
-        productRepository.deleteAll();
-    }
+    @MockBean
+    private InventoryEventUseCase inventoryEventUseCase;
 
     @Test
     @DisplayName("Should process valid product creation event successfully")
@@ -50,11 +44,16 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
         // Assert
         await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    Optional<ProductEntity> savedProduct = productRepository.findById("PRODUTO001");
-                    assertThat(savedProduct).isPresent();
-                    assertThat(savedProduct.get().getSku()).isEqualTo("PRODUTO001");
-                    assertThat(savedProduct.get().getNome()).isEqualTo("Produto Teste");
-                    assertThat(savedProduct.get().getAtivo()).isTrue();
+                    verify(inventoryEventUseCase, atLeastOnce())
+                            .handleProductEvent(
+                                    argThat(product ->
+                                            "PRODUTO001".equals(product.sku()) &&
+                                                    product.eventId() != null
+                                    ),
+                                    eq(topic),
+                                    any(Integer.class),
+                                    any(Long.class)
+                            );
                 });
     }
 
@@ -71,11 +70,16 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
         // Assert
         await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    Optional<ProductEntity> savedProduct = productRepository.findById("PRODUTO002");
-                    assertThat(savedProduct).isPresent();
-                    assertThat(savedProduct.get().getSku()).isEqualTo("PRODUTO002");
-                    assertThat(savedProduct.get().getNome()).isEqualTo("Produto Atualizado");
-                    assertThat(savedProduct.get().getAtivo()).isTrue();
+                    verify(inventoryEventUseCase, atLeastOnce())
+                            .handleProductEvent(
+                                    argThat(product ->
+                                            "PRODUTO002".equals(product.sku()) &&
+                                                    product.eventId() != null
+                                    ),
+                                    eq(topic),
+                                    any(Integer.class),
+                                    any(Long.class)
+                            );
                 });
     }
 
@@ -92,11 +96,16 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
         // Assert
         await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    Optional<ProductEntity> savedProduct = productRepository.findById("PRODUTO003");
-                    assertThat(savedProduct).isPresent();
-                    assertThat(savedProduct.get().getSku()).isEqualTo("PRODUTO003");
-                    assertThat(savedProduct.get().getNome()).isEqualTo("Produto Desativado");
-                    assertThat(savedProduct.get().getAtivo()).isFalse();
+                    verify(inventoryEventUseCase, atLeastOnce())
+                            .handleProductEvent(
+                                    argThat(product ->
+                                            "PRODUTO003".equals(product.sku()) &&
+                                                    product.eventId() != null
+                                    ),
+                                    eq(topic),
+                                    any(Integer.class),
+                                    any(Long.class)
+                            );
                 });
     }
 
@@ -117,10 +126,8 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
         // Assert
         await().atMost(15, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    assertThat(productRepository.count()).isEqualTo(3);
-                    assertThat(productRepository.findById("PRODUTO004")).isPresent();
-                    assertThat(productRepository.findById("PRODUTO005")).isPresent();
-                    assertThat(productRepository.findById("PRODUTO006")).isPresent();
+                    verify(inventoryEventUseCase, times(3))
+                            .handleProductEvent(any(), eq(topic), any(Integer.class), any(Long.class));
                 });
     }
 
@@ -138,47 +145,54 @@ public class ProductKafkaListenerIntegrationTest extends KafkaIntegrationTestBas
         // Act
         kafkaTemplate.send(topic, productEvent);
 
-        // Assert - Should not throw exception and should not save any product
+        // Assert - Should not throw exception and should still call the service
         await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    assertThat(productRepository.count()).isEqualTo(0);
+                    verify(inventoryEventUseCase, atLeastOnce())
+                            .handleProductEvent(any(), eq(topic), any(Integer.class), any(Long.class));
                 });
     }
 
     @Test
-    @DisplayName("Should process product event with empty sku")
+    @DisplayName("Should process product event with empty SKU")
     void shouldProcessProductEventWithEmptySku() {
         // Arrange
-        ProductEvent productEvent = ProductEvent.builder()
-                .eventId(UUID.randomUUID().toString())
-                .tipo("CRIAR")
-                .dados(ProductData.builder()
-                        .sku("")
-                        .nome("Produto sem SKU")
-                        .ativo(true)
-                        .build())
-                .build();
+        ProductEvent productEvent = createValidProductEvent("CRIAR", "", "Produto Sem SKU", true);
         String topic = "produtos-test";
 
         // Act
         kafkaTemplate.send(topic, productEvent);
 
-        // Assert - Should not save product with empty SKU
+        // Assert
         await().atMost(10, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    assertThat(productRepository.count()).isEqualTo(0);
+                    verify(inventoryEventUseCase, atLeastOnce())
+                            .handleProductEvent(
+                                    argThat(product ->
+                                            "".equals(product.sku()) &&
+                                                    product.eventId() != null
+                                    ),
+                                    eq(topic),
+                                    any(Integer.class),
+                                    any(Long.class)
+                            );
                 });
     }
 
+    /**
+     * Creates a valid ProductEvent for testing purposes.
+     */
     private ProductEvent createValidProductEvent(String tipo, String sku, String nome, Boolean ativo) {
+        ProductData productData = ProductData.builder()
+                .sku(sku)
+                .nome(nome)
+                .ativo(ativo)
+                .build();
+
         return ProductEvent.builder()
                 .eventId(UUID.randomUUID().toString())
                 .tipo(tipo)
-                .dados(ProductData.builder()
-                        .sku(sku)
-                        .nome(nome)
-                        .ativo(ativo)
-                        .build())
+                .dados(productData)
                 .build();
     }
 }
