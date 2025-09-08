@@ -1,7 +1,7 @@
 -- Create pedidos table
 CREATE TABLE pedidos
 (
-    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     numero         VARCHAR(255) NOT NULL UNIQUE,
     cliente_id     VARCHAR(255),
     loja_id        BIGINT,
@@ -15,7 +15,7 @@ CREATE TABLE pedidos
 -- Create itens_pedido table
 CREATE TABLE itens_pedido
 (
-    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     pedido_id      BIGINT       NOT NULL,
     sku            VARCHAR(255) NOT NULL,
     quantidade     BIGINT       NOT NULL,
