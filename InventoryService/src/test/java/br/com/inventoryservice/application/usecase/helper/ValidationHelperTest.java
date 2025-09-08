@@ -26,10 +26,13 @@ import static org.mockito.Mockito.*;
 class ValidationHelperTest {
 
     private static final String TOPIC = "test-topic";
+
     @Mock
     private ProductReadPort productReadPort;
+
     @Mock
     private StoreReadPort storeReadPort;
+
     @InjectMocks
     private ValidationHelper validationHelper;
 

@@ -4,8 +4,6 @@ import br.com.orderservice.domain.enuns.OrderStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -15,7 +13,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("Order Domain Model Tests")
-@ExtendWith(MockitoExtension.class)
 class OrderTest {
 
     @Nested

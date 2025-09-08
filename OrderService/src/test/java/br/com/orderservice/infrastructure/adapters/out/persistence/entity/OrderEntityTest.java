@@ -3,8 +3,6 @@ package br.com.orderservice.infrastructure.adapters.out.persistence.entity;
 import br.com.orderservice.domain.enuns.OrderStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -13,7 +11,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("OrderEntity")
-@ExtendWith(MockitoExtension.class)
 class OrderEntityTest {
 
     @Test

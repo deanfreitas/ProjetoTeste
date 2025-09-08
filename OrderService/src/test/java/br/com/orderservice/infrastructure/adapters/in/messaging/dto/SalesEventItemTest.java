@@ -3,13 +3,10 @@ package br.com.orderservice.infrastructure.adapters.in.messaging.dto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("SalesEventItem")
-@ExtendWith(MockitoExtension.class)
 class SalesEventItemTest {
 
     @Nested

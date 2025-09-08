@@ -21,7 +21,7 @@ spring:
     open-in-view: false
     show-sql: true
   flyway:
-    enabled: true
+    enabled: false
     locations: classpath:db/migration
     clean-disabled: false
   h2:

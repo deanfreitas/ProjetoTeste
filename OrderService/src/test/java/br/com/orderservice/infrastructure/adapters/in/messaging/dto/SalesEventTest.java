@@ -2,8 +2,6 @@ package br.com.orderservice.infrastructure.adapters.in.messaging.dto;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -12,7 +10,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("SalesEvent")
-@ExtendWith(MockitoExtension.class)
 class SalesEventTest {
 
     @Test
