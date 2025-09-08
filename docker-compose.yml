@@ -19,7 +19,33 @@ services:
     networks:
       - projeto-teste
 
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: projeto-teste
+      POSTGRES_PASSWORD: projeto-teste
+      POSTGRES_DB: projeto-teste
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - projeto-teste
+
+  flyway:
+    image: flyway/flyway
+    depends_on:
+      - postgres
+    command: -url=jdbc:postgresql://postgres:5432/projeto-teste -user=projeto-teste -password=projeto-teste -locations=filesystem:/flyway/sql migrate
+    volumes:
+      - ./db/migration:/flyway/sql
+    networks:
+      - projeto-teste
+
 networks:
   projeto-teste:
     driver: bridge
-    external: true
+
+volumes:
+  db:
