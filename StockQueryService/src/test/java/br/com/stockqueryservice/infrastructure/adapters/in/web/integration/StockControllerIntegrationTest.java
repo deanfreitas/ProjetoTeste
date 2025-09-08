@@ -126,7 +126,7 @@ public class StockControllerIntegrationTest {
         @DisplayName("Should return empty list when product has no stock")
         void shouldReturnEmptyListWhenProductHasNoStock() {
             // Given
-            Long productId = 999L; // Non-existing product
+            long productId = 999L; // Non-existing product
             String url = "http://localhost:" + port + "/api/inventory/stock?productId=" + productId;
 
             // When
@@ -134,7 +134,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
@@ -158,7 +158,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
@@ -191,7 +191,7 @@ public class StockControllerIntegrationTest {
                     url,
                     HttpMethod.GET,
                     null,
-                    new ParameterizedTypeReference<List<Stock>>() {
+                    new ParameterizedTypeReference<>() {
                     }
             );
 
@@ -214,7 +214,7 @@ public class StockControllerIntegrationTest {
         @DisplayName("Should return empty list when store has no stock")
         void shouldReturnEmptyListWhenStoreHasNoStock() {
             // Given
-            Long storeId = 999L; // Non-existing store
+            long storeId = 999L; // Non-existing store
             String url = "http://localhost:" + port + "/api/inventory/stock/store/" + storeId;
 
             // When
