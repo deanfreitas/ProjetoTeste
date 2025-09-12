@@ -37,7 +37,7 @@ services:
     image: flyway/flyway
     depends_on:
       - postgres
-    command: -url=jdbc:postgresql://postgres:5432/projeto-teste -user=projeto-teste -password=projeto-teste -locations=filesystem:/flyway/sql migrate
+    command: -url=jdbc:postgresql://postgres:5432/projeto-teste -user=projeto-teste -password=projeto-teste -locations=filesystem:/flyway/sql -connectRetries=10 migrate
     volumes:
       - ./db/migration:/flyway/sql
     networks:
